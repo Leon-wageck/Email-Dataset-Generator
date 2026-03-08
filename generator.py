@@ -5,7 +5,9 @@
 # - Add specific names manually
 # - Deduplicate names button (case-insensitive)
 # - Separate seeds: name seed + email seed (reproducible)
-# - Export: CSV (name,email,domain,pattern,username), JSON, SQL INSERTs
+# - Export: CSV (name,email,domain,pattern,username)
+# - Domain list import/export
+# - Domain generator (private provider pool)
 #
 # Defaults use RFC-reserved example domains. If you add domains, only use domains you control.
 
@@ -15,10 +17,187 @@ import random
 import re
 import json
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # RFC 2606 reserved example domains (safe for testing)
 DEFAULT_DOMAINS = ["gmail.com", "example.org", "example.net"]
+
+# Built-in pool of common private email provider domains
+# Use these only if appropriate for your testing workflow.
+PROVIDER_DOMAINS = [
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "hotmail.com",
+    "hotmail.co.uk",
+    "hotmail.de",
+    "live.com",
+    "live.co.uk",
+    "msn.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "yahoo.com",
+    "yahoo.co.uk",
+    "yahoo.de",
+    "yahoo.fr",
+    "yahoo.ca",
+    "yahoo.com.au",
+    "yahoo.co.in",
+    "aol.com",
+    "aim.com",
+    "mail.com",
+    "email.com",
+    "usa.com",
+    "post.com",
+    "consultant.com",
+    "techie.com",
+    "engineer.com",
+    "accountant.com",
+    "proton.me",
+    "protonmail.com",
+    "pm.me",
+    "tutanota.com",
+    "tuta.io",
+    "tutamail.com",
+    "mailbox.org",
+    "posteo.de",
+    "runbox.com",
+    "fastmail.com",
+    "fastmail.fm",
+    "fastmail.com.au",
+    "gmx.de",
+    "gmx.net",
+    "gmx.com",
+    "web.de",
+    "freenet.de",
+    "t-online.de",
+    "arcor.de",
+    "vodafone.de",
+    "unitybox.de",
+    "1und1.de",
+    "ionos.de",
+    "mail.de",
+    "email.de",
+    "online.de",
+    "netcologne.de",
+    "kabelmail.de",
+    "versanet.de",
+    "o2online.de",
+    "laposte.net",
+    "orange.fr",
+    "wanadoo.fr",
+    "free.fr",
+    "sfr.fr",
+    "bbox.fr",
+    "neuf.fr",
+    "alice.it",
+    "libero.it",
+    "virgilio.it",
+    "tin.it",
+    "tiscali.it",
+    "fastwebnet.it",
+    "yandex.com",
+    "yandex.ru",
+    "yandex.by",
+    "yandex.kz",
+    "mail.ru",
+    "bk.ru",
+    "inbox.ru",
+    "list.ru",
+    "ukr.net",
+    "meta.ua",
+    "i.ua",
+    "seznam.cz",
+    "centrum.cz",
+    "atlas.cz",
+    "volny.cz",
+    "email.cz",
+    "abv.bg",
+    "mail.bg",
+    "dir.bg",
+    "interia.pl",
+    "wp.pl",
+    "onet.pl",
+    "o2.pl",
+    "gazeta.pl",
+    "poczta.fm",
+    "poczta.onet.pl",
+    "rediffmail.com",
+    "rediff.com",
+    "india.com",
+    "sify.com",
+    "indiatimes.com",
+    "in.com",
+    "rocketmail.com",
+    "zoho.com",
+    "zohomail.com",
+    "mailfence.com",
+    "hushmail.com",
+    "countermail.com",
+    "startmail.com",
+    "kolabnow.com",
+    "disroot.org",
+    "riseup.net",
+    "mailbox.com",
+    "vfemail.net",
+    "lycos.com",
+    "lycos.de",
+    "excite.com",
+    "excite.it",
+    "netscape.net",
+    "juno.com",
+    "netzero.com",
+    "bigpond.com",
+    "telstra.com",
+    "optusnet.com.au",
+    "ii.net",
+    "internode.on.net",
+    "btinternet.com",
+    "sky.com",
+    "talktalk.net",
+    "virginmedia.com",
+    "blueyonder.co.uk",
+    "ntlworld.com",
+    "plus.net",
+    "orange.net",
+    "wanadoo.co.uk",
+    "btopenworld.com",
+    "mail.ee",
+    "hot.ee",
+    "mail.lv",
+    "inbox.lv",
+    "inbox.lt",
+    "mail.lt",
+    "one.lt",
+    "email.it",
+    "mail.dk",
+    "post.dk",
+    "webmail.co.za",
+    "mweb.co.za",
+    "telkomsa.net",
+    "vodamail.co.za",
+    "terra.com",
+    "terra.es",
+    "terra.com.br",
+    "bol.com.br",
+    "uol.com.br",
+    "ig.com.br",
+    "r7.com",
+    "globo.com",
+    "hotmail.com.br",
+    "yahoo.com.br",
+    "clix.pt",
+    "sapo.pt",
+    "mail.pt",
+    "iol.pt",
+    "mail.gr",
+    "otenet.gr",
+    "forthnet.gr",
+    "hol.gr",
+    "cytanet.com.cy",
+    "cytanet.com",
+]
 
 PATTERNS = [
     "{first}.{last}",
@@ -73,6 +252,10 @@ def normalize_name_line(line: str) -> str:
     line = re.sub(r"\s+", " ", line.strip())
     return line
 
+def normalize_domain_line(line: str) -> str:
+    # Trim + lowercase
+    return line.strip().lower()
+
 def sql_escape(s: str) -> str:
     # Basic SQL string literal escape
     return s.replace("'", "''")
@@ -81,7 +264,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Safe Email Generator (Synthetic/Test)")
-        self.geometry("1120x740")
+        self.geometry("1120x780")
 
         # Stores most recent generated rows for export
         self.last_rows: List[Dict[str, Any]] = []
@@ -144,7 +327,30 @@ class App(tk.Tk):
         domains_frame = ttk.LabelFrame(left, text="Domains (safe defaults)", padding=8)
         domains_frame.pack(fill="both", expand=False, pady=(10, 0))
 
-        self.domains_text = tk.Text(domains_frame, height=6, wrap="none")
+        domains_controls = ttk.Frame(domains_frame)
+        domains_controls.pack(fill="x", pady=(0, 6))
+
+        ttk.Label(domains_controls, text="Domain seed:").pack(side="left")
+        self.domain_seed_var = tk.StringVar(value="")
+        ttk.Entry(domains_controls, textvariable=self.domain_seed_var, width=18).pack(side="left", padx=(6, 12))
+
+        ttk.Label(domains_controls, text="Generate domains:").pack(side="left")
+        self.gen_domains_count_var = tk.StringVar(value="25")
+        ttk.Entry(domains_controls, textvariable=self.gen_domains_count_var, width=8).pack(side="left", padx=(6, 6))
+
+        self.domain_gen_mode_var = tk.StringVar(value="append")
+        ttk.Radiobutton(domains_controls, text="Append", variable=self.domain_gen_mode_var, value="append").pack(side="left", padx=6)
+        ttk.Radiobutton(domains_controls, text="Replace", variable=self.domain_gen_mode_var, value="replace").pack(side="left", padx=6)
+
+        ttk.Button(domains_controls, text="Generate Domains", command=self.generate_domains).pack(side="left", padx=(12, 6))
+        ttk.Button(domains_controls, text="Deduplicate Domains", command=self.dedup_domains).pack(side="left", padx=(6, 0))
+
+        domains_io = ttk.Frame(domains_frame)
+        domains_io.pack(fill="x", pady=(0, 6))
+        ttk.Button(domains_io, text="Import Domains", command=self.import_domains).pack(side="left")
+        ttk.Button(domains_io, text="Export Domains", command=self.export_domains).pack(side="left", padx=8)
+
+        self.domains_text = tk.Text(domains_frame, height=8, wrap="none")
         self.domains_text.pack(fill="both", expand=True)
         self.domains_text.insert("1.0", "\n".join(DEFAULT_DOMAINS))
 
@@ -214,6 +420,10 @@ class App(tk.Tk):
         raw = widget.get("1.0", "end").splitlines()
         return [normalize_name_line(ln) for ln in raw if normalize_name_line(ln)]
 
+    def _read_domain_lines(self, widget: tk.Text) -> List[str]:
+        raw = widget.get("1.0", "end").splitlines()
+        return [normalize_domain_line(ln) for ln in raw if normalize_domain_line(ln)]
+
     def _rng_from_seed(self, seed_value: str) -> random.Random:
         seed_value = seed_value.strip()
         return random.Random(seed_value if seed_value != "" else None)
@@ -248,6 +458,20 @@ class App(tk.Tk):
         self.names_text.insert("1.0", "\n".join(out))
         messagebox.showinfo("Deduplicate", f"Kept {len(out)} unique names.")
 
+    def dedup_domains(self):
+        lines = self._read_domain_lines(self.domains_text)
+        seen = set()
+        out = []
+        for ln in lines:
+            key = ln.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ln)
+        self.domains_text.delete("1.0", "end")
+        self.domains_text.insert("1.0", "\n".join(out))
+        messagebox.showinfo("Deduplicate", f"Kept {len(out)} unique domains.")
+
     def generate_names(self):
         try:
             n = int(self.gen_names_count_var.get().strip())
@@ -271,6 +495,91 @@ class App(tk.Tk):
             else:
                 self.names_text.insert("1.0", "\n".join(names))
 
+    def generate_domains(self):
+        try:
+            n = int(self.gen_domains_count_var.get().strip())
+            if n <= 0 or n > len(PROVIDER_DOMAINS):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(
+                "Invalid count",
+                f"Domain count must be an integer between 1 and {len(PROVIDER_DOMAINS)}."
+            )
+            return
+
+        rng = self._rng_from_seed(self.domain_seed_var.get())
+        domains = rng.sample(PROVIDER_DOMAINS, n)
+
+        if self.domain_gen_mode_var.get() == "replace":
+            self.domains_text.delete("1.0", "end")
+            self.domains_text.insert("1.0", "\n".join(domains))
+        else:
+            existing = self.domains_text.get("1.0", "end").strip()
+            if existing:
+                self.domains_text.insert("end", "\n" + "\n".join(domains))
+            else:
+                self.domains_text.insert("1.0", "\n".join(domains))
+
+    def import_domains(self):
+        path = filedialog.askopenfilename(
+            title="Import Domains",
+            filetypes=[
+                ("Text/CSV files", "*.txt *.csv"),
+                ("Text files", "*.txt"),
+                ("CSV files", "*.csv"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            messagebox.showerror("Import failed", f"Could not read file:\n{e}")
+            return
+
+        # Accept newline, comma, semicolon, tab, and whitespace-separated input
+        parts = re.split(r"[\n\r,;\t ]+", content)
+        domains = [normalize_domain_line(p) for p in parts if normalize_domain_line(p)]
+
+        if not domains:
+            messagebox.showerror("Import failed", "No domains found in file.")
+            return
+
+        current = self.domains_text.get("1.0", "end").strip()
+        if current:
+            self.domains_text.insert("end", "\n" + "\n".join(domains))
+        else:
+            self.domains_text.insert("1.0", "\n".join(domains))
+
+        messagebox.showinfo("Imported", f"Imported {len(domains)} domain entries.")
+
+    def export_domains(self):
+        domains = self._read_domain_lines(self.domains_text)
+        if not domains:
+            messagebox.showerror("Nothing to export", "No domains to export.")
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            initialfile=f"domains_{ts}.txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(domains) + "\n")
+        except Exception as e:
+            messagebox.showerror("Export failed", f"Could not write file:\n{e}")
+            return
+
+        messagebox.showinfo("Exported", f"Saved to:\n{path}")
+
     def generate_emails(self):
         rng = self._rng_from_seed(self.email_seed_var.get())
 
@@ -283,7 +592,7 @@ class App(tk.Tk):
             return
 
         names = self._read_lines(self.names_text)
-        domains = self._read_lines(self.domains_text)
+        domains = self._read_domain_lines(self.domains_text)
 
         if not names:
             messagebox.showerror("No names", "Add some names or click Generate in the names section.")
@@ -409,7 +718,6 @@ class App(tk.Tk):
         if not path:
             return
 
-        # Manual CSV writing (no extra deps), with proper quoting
         headers = ["name", "email", "domain", "pattern", "username"]
 
         def csv_quote(val: str) -> str:
